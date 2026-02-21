@@ -1,21 +1,25 @@
-
-import { StackProvider, StackTheme } from '@stackframe/stack';
-import { stackServerApp } from '../stack/server';
+import { StackProvider, StackTheme } from "@stackframe/stack";
+import { stackServerApp } from "../stack/server";
 
 import "./globals.css";
 
-import Provider from './provider';
-import { Toaster } from '@/components/ui/sonner';
+import Provider from "./provider";
+import { Toaster } from "@/components/ui/sonner";
+import React from "react";
+
 export const metadata = {
-  title: 'AI Coaching Voice Agent',
-  description: 'An AI-powered voice agent for coaching and personal development.',
+  title: "AI Coaching Voice Agent",
+  description: "An AI-powered voice agent for coaching and personal development.",
 };
 
-export default function RootLayout({ children }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
-      <body
-      >
+      <body>
         <StackProvider app={stackServerApp}>
           <StackTheme>
             <Provider>
