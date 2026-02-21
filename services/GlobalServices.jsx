@@ -32,7 +32,7 @@ export const AIModel = async (topic, coachingOption, lastTwoConversation) => {
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "x-ai/grok-4.1-fast:free",
+      model: "nvidia/nemotron-nano-12b-v2-vl:free",
       messages: [
         { role: "assistant", content: PROMPT },   // coaching instruction
         ...lastTwoConversation        // transcript from user
@@ -43,11 +43,35 @@ export const AIModel = async (topic, coachingOption, lastTwoConversation) => {
     console.log("AI Response:", aiResp);
 
     return aiResp; // ✅ return so you can use it in page.jsx
-  } catch (error) {
+  } catch (error) { 
     console.error("AIModel error:", error);
     return null;
   }
 }
+
+export const AIModelToGenerateFeedbackAndNotes = async (coachingOption, conversation) => {
+  const option = CoachingOptions.find(
+    (item) => item.name.trim().toLowerCase() === coachingOption?.trim().toLowerCase()
+  );
+
+  if (!option) {
+    console.error("Invalid coachingOption:", coachingOption);
+    return { role: "assistant", content: "⚠️ No matching coaching option found for feedback." };
+  }
+
+  const PROMPT = option.summaryPrompt.replace("{content}", JSON.stringify(conversation));
+
+  const completion = await openai.chat.completions.create({
+    model: "openai/gpt-4o-mini",
+    messages: [
+      ...conversation,
+      { role: "system", content: PROMPT },
+    ],
+  });
+
+  return completion?.choices[0]?.message;
+};
+
 
 export const ConvertTextToSpeech = async (text, expertName) => {
     const pollyClient=new PollyClient({

@@ -23,3 +23,14 @@ export const CreateUser = mutation({
     return existing[0];
   },
 });
+export const UpdateUserToken = mutation({
+  args: {
+    Id: v.id("users"),
+    credit: v.number(),   // ✅ match schema
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.Id, {
+      credit: args.credit,   // ✅ match schema
+    });
+  },
+});

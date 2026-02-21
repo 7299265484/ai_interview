@@ -2,7 +2,7 @@ import React from "react";
 
 function AppHeader() {
   return (
-    <div>
+    <div className="justify center">
         <h3>AI Coaching Voice Agent</h3>
     </div>
     );

@@ -1,6 +1,6 @@
 "use client"
 import React, { use, useEffect } from "react";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useParams } from "next/navigation";
 import { CoachingExpert } from "../../../../services/Options";
@@ -18,16 +18,21 @@ import { RealtimeTranscriber } from "@/lib/RealtimeTranscriber";
 import { AIModel } from "../../../../services/GlobalServices";
 import ChatBox from "./_components/ChatBox";
 import { ConvertTextToSpeech } from "../../../../services/GlobalServices";
+import { useContext } from "react";
+import { UserContext } from "@/app/_context/UserContext";
+
 
 function DiscussionRoom() {
 
     const {roomid} = useParams();
     const DiscussionRoomData = useQuery(api.DiscussionRoom.GetDiscussionRoom,{ id: roomid });
-
+    const {userData, setUserData} = useContext(UserContext);
     const [expert, setExpert] = useState();
     const [enableMic, setEnableMic]= useState(false);
     const recorder = useRef(null);
     let silenceTimeout = null;
+    const [enableFeedbackNotes, setEnableFeedbackNotes]= useState(false);
+    const UpdateConversation=useMutation(api.DiscussionRoom.UpdateConversation);
     const realtimeTranscriber = useRef(null);
     const [transcriber, setTranscriber] = useState();
     const [audioUrl, setAudioUrl]= useState();
@@ -43,7 +48,7 @@ function DiscussionRoom() {
     ]);
     const[loading, setLoading]= useState(false);
     const texts = useRef({});
-
+    const updateUserToken = useMutation(api.users.UpdateUserToken);
     useEffect(() => {
     if (DiscussionRoomData) {
          const Expert = CoachingExpert.find(item => item.name == DiscussionRoomData.expertName);
@@ -81,8 +86,8 @@ const connectToServer = async () => {
   });
 
   realtimeTranscriber.current.on("turn", async(turn) => {
-  
-  if (turn.transcript && turn.end_of_turn){
+  console.log("Turn event:", turn);
+  if (turn.transcript && turn.end_of_turn && turn.turn_is_formatted){
     console.log("Transcript received:", turn.transcript);
 
     
@@ -92,8 +97,8 @@ const connectToServer = async () => {
         role:'user',
         content: turn.transcript
       }]);
-
-      
+      await updateUserTokenMethod(turn.transcript);
+    
     }
     texts[turn.audio_start] = turn.transcript;
 
@@ -114,6 +119,8 @@ const connectToServer = async () => {
   // 4. Connect to AssemblyAI
   await realtimeTranscriber.current.connect();
   setLoading(false);
+  setEnableMic(true);
+  console.log("Connected to voice server.");
   // 5. Capture microphone audio in the browser
   if (typeof window !== "undefined" && typeof navigator !== "undefined") {
     navigator.mediaDevices.getUserMedia({ audio: true })
@@ -131,7 +138,6 @@ const connectToServer = async () => {
             clearTimeout(silenceTimeout);
 
             const buffer = await blob.arrayBuffer();
-            console.log("Audio data available:", buffer);
 
             // 6. Send audio chunks to the transcriber
             if (realtimeTranscriber.current) {
@@ -152,19 +158,39 @@ const connectToServer = async () => {
 
 useEffect(() => {
   async function fetchData() {
-    if(conversation[conversation.length -1].role === 'user'){
+    if (
+      DiscussionRoomData &&
+      conversation[conversation.length - 1].role === 'user'
+    ) {
       const lastTwoMsg = conversation.slice(-2);
-      const aiResp = await AIModel(DiscussionRoomData.topic, 
+      const aiResp = await AIModel(
+        DiscussionRoomData.topic,
         DiscussionRoomData.coachingOption,
-        lastTwoMsg);
-        console.log("AI Reply:", aiResp);
-        const url=await ConvertTextToSpeech(aiResp.content, DiscussionRoomData.expertName);
-        console.log("Audio URL:", url);
-        setAudioUrl(url);
-      setConversation(prev => [...prev,aiResp])
-}
-  }fetchData()
-}, [conversation])
+        lastTwoMsg
+      );
+
+      console.log("AI Reply:", aiResp);
+
+      const url = await ConvertTextToSpeech(
+        aiResp.content,
+        DiscussionRoomData.expertName
+      );
+
+      console.log("Audio URL:", url);
+      setAudioUrl(url);
+      setConversation(prev => [...prev, aiResp]);
+      await updateUserTokenMethod(aiResp.content);
+    }
+  }
+  fetchData();
+  
+}, [
+  conversation,                      // ✅ stable array reference
+  DiscussionRoomData?.topic,         // ✅ primitive string
+  DiscussionRoomData?.coachingOption,// ✅ primitive string
+  DiscussionRoomData?.expertName     // ✅ primitive string
+]);
+
 
   const disconnectMic = async (e) => {
   e.preventDefault();
@@ -179,10 +205,34 @@ useEffect(() => {
   }
 
   setEnableMic(false);
+  console.log("Disconnected from voice server."); 
+  await UpdateConversation({
+    id:DiscussionRoomData._id,
+    conversation: conversation
+  })
   // disconnect from voice server
   setLoading(false);
+  setEnableFeedbackNotes(true);
 };
 
+const updateUserTokenMethod = async (message) => {
+  if (!userData?._id) return; // ✅ prevent null errors
+
+  const tokenCount = message?.trim() ? message.trim().split(/\s+/).length : 0;
+
+  await updateUserToken({
+    Id: userData._id,
+    credit: Number(userData.credit) - Number(tokenCount), // see fix #2 below
+  });
+
+};
+// useEffect(() => { 
+//   if (DiscussionRoomData) { 
+//     setUserData((prev) => ({ ...prev, 
+//       credit: Number(prev.credit) - Number(tokenCount),
+//      }));
+//      } 
+//   }, [DiscussionRoomData,  setUserData]);
    
     return (
     <div className="mt-12">
@@ -192,8 +242,18 @@ useEffect(() => {
             <div className=' h-[60vh] bg-secondary border rounded-4xl
              flex flex-col justify-center items-center relative'>
                 
-                <Image src={expert?.avatar} alt = 'Avatar' width={200} height={200} 
-                className="h-[80px] w-[80px] rounded-full object-cover animate-pulse"/>
+                                {expert?.avatar ? (
+                  <Image 
+                    src={expert.avatar} 
+                    alt="Avatar" 
+                    width={200} 
+                    height={200} 
+                    className="h-[80px] w-[80px] rounded-full object-cover animate-pulse"
+                  />
+                ) : (
+                  <div className="h-[80px] w-[80px] rounded-full bg-gray-300 animate-pulse" />
+                )}
+
                 <h2 className="text-black text-bold mt-5 animate-pulse">{DiscussionRoomData?.expertName}</h2>
                 <audio src={audioUrl} tupe="audio/mp3" autoPlay/>
                 <div className="p-5 gb-gray-200 px-10 rounded-lg absolute bottom-10 right-10">
@@ -207,10 +267,13 @@ useEffect(() => {
                 </div>
             </div>
             <div> 
-            <ChatBox conversation={conversation}/>
+            <ChatBox conversation={conversation} 
+            enableFeedbackNotes={enableFeedbackNotes}
+            coachingOption={DiscussionRoomData?.coachingOption}
+            />
             </div>
             <div>
-              <h2>{transcriber} </h2>
+              
             </div>
         </div>
     </div>
